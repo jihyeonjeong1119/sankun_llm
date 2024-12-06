@@ -1,75 +1,49 @@
-import os
-
-import vertexai
-from vertexai.preview import reasoning_engines
-from langchain_google_vertexai import HarmBlockThreshold, HarmCategory
-from langchain.chains import ConversationChain
-from langchain.memory import ConversationBufferMemory
-from langchain_google_vertexai import ChatVertexAI
+from app.common.vertex_ai_setup import get_agent
 
 
+def validate_question(question: str, memory, user_profile=None) -> str:
+    profile_info = (
+        f"User Profile:\n"
+        f"- Company: {user_profile.get('company', 'N/A')}.\n"
+        f"- Revenue: {user_profile.get('revenue', 'N/A')}.\n"
+        f"- Industry: {user_profile.get('industry', 'N/A')}.\n"
+        f"- Role: {user_profile.get('role', 'N/A')}.\n"
+        f"- Department: {user_profile.get('department', 'N/A')}.\n"
+        f"- Recent Searches: {user_profile.get('recent_searches', 'N/A')}.\n"
+    ) if user_profile else "No user profile provided."
+    prompt = f"""
+        You are a construction-industry-specialized LLM trained to assist construction professionals. 
+        Use the provided user profile to better understand the context of the question.
+        
+        {profile_info}
+        
+        Classify the user's question into one of the following types:
+        
+        1. "D" (Construction Data Needed): For questions that require access to construction-specific data, such as bidding details, project information, company performance, or construction industry news.  
+           Example: "What is the bidding competition rate for this month?" or "Give me the latest project updates in the construction industry."
+        
+        2. "G" (General Question): For questions that can be answered using general knowledge or do not require specialized construction data.  
+           Example: "What are the top construction trends in 2024?" or "How does inflation impact the construction sector."
+        
+        3. "T" (Data ID Lookup): For questions where the user only needs an ID for a specific entity (e.g., company, project, or person) to directly access more detailed information.  
+           Example: "Can you recommend a construction company?" or "What is the representative's name for this company?"
 
-vertexai.init(
-    project="sankun-df577",
-    staging_bucket="gs://sankun_llm_data",
-    location="us-central1",
-)
-
-model = "gemini-1.5-flash-001"
-
-
-
-safety_settings = {
-    HarmCategory.HARM_CATEGORY_UNSPECIFIED: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
-    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-}
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/Users/junhyukkang/Desktop/DEV/sankun-df577-5ef289163f0b.json"
-
-model = "gemini-1.5-flash-001"
-
-model_kwargs = {
-    # temperature (float): The sampling temperature controls the degree of
-    # randomness in token selection.
-    "temperature": 0.28,
-    # max_output_tokens (int): The token limit determines the maximum amount of
-    # text output from one prompt.
-    "max_output_tokens": 1000,
-    # top_p (float): Tokens are selected from most probable to least until
-    # the sum of their probabilities equals the top-p value.
-    "top_p": 0.95,
-    # top_k (int): The next token is selected from among the top-k most
-    # probable tokens. This is not supported by all model versions. See
-    # https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/image-understanding#valid_parameter_values
-    # for details.
-    "top_k": None,
-    # safety_settings (Dict[HarmCategory, HarmBlockThreshold]): The safety
-    # settings to use for generating content.
-    # (you must create your safety settings using the previous step first).
-    "safety_settings": safety_settings,
-}
-
-llm = ChatVertexAI(model_name=model, **model_kwargs)
-
-# 대화 메모리 초기화
-memory = ConversationBufferMemory()
-
-# LangChain 대화 체인 생성
-conversation_chain = ConversationChain(
-    llm=llm,
-    memory=memory,
-)
-
-# 첫 번째 질문
-response_1 = conversation_chain.run("안녕하세요? 건축현장에 대해 알고싶어요")
-print("Response 1:", response_1)
-
-# 두 번째 질문 (연속된 질문)
-response_2 = conversation_chain.run("제 이전 질문이 뭐였죠?")
-print("Response 2:", response_2)
-
-# 메모리 상태 확인
-print("\n--- Conversation Memory ---")
-print(memory.buffer)
+        4. "E" (Error): For unclear questions or if the question cannot be classified into the above types.
+        
+        **Instructions**:
+        - Respond with only one of the following letters: "D", "G", "T", or "E".
+        - Do not provide explanations, context, or additional text.
+        - Respond with just the letter corresponding to the classification.
+        
+        User Question: "{question}"
+        """
+    agent = get_agent(
+        model_name="gemini-1.5-flash-001",
+        tools=[],
+        chat_history=lambda: memory.chat_memory,
+        max_output_tokens=20,  # 짧은 판단 응답
+        temperature=0.2  # 결정론적 응답
+    )
+    response = agent.query(input=prompt)  # 공백 제거
+    classification = response.get('output', '').strip()
+    return classification

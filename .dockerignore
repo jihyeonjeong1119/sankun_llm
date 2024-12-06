@@ -1,0 +1,5 @@
+venv/
+*.log
+*.tar
+*.tmp
+node_modules/

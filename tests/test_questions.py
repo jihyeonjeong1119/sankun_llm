@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 from app.main import app
-from app.services.validation_service import validate_question
+from app.services.main_service import validate_question
 
 client = TestClient(app)
 
